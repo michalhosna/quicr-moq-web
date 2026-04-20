@@ -7,19 +7,18 @@
  * Provides server URL input and connect/disconnect controls.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useStore } from '../../store';
 
 export const ConnectionPanel: React.FC = () => {
   const { serverUrl, state, error, connect, disconnect, setServerUrl, localDevelopment, setLocalDevelopment, useWorkers, setUseWorkers } = useStore();
-  const [inputUrl, setInputUrl] = useState(serverUrl);
 
   const isConnecting = state === 'connecting';
   const isConnected = state === 'connected';
 
   const handleConnect = async () => {
     try {
-      await connect(inputUrl);
+      await connect(serverUrl);
     } catch (err) {
       // Error is handled in store
     }
@@ -52,11 +51,8 @@ export const ConnectionPanel: React.FC = () => {
           <input
             id="serverUrl"
             type="text"
-            value={inputUrl}
-            onChange={(e) => {
-              setInputUrl(e.target.value);
-              setServerUrl(e.target.value);
-            }}
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="https://relay.example.com/moq"
             className="input"
@@ -131,7 +127,7 @@ export const ConnectionPanel: React.FC = () => {
           {!isConnected ? (
             <button
               onClick={handleConnect}
-              disabled={isConnecting || !inputUrl}
+              disabled={isConnecting || !serverUrl}
               className="btn-primary flex-1 flex items-center justify-center gap-2"
             >
               {isConnecting ? (

@@ -8,7 +8,7 @@
  * Tabs: General, Media, Playback, Security
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store';
 import { LogLevel } from '../../types';
 import { VarIntType } from '@web-moq/core';
@@ -17,6 +17,7 @@ import {
   EXPERIENCE_PROFILE_ORDER,
   type ExperienceProfileName,
 } from '@web-moq/media';
+import { encodeBookmark, mergeBookmarkIntoLocation } from '../../lib/bookmark';
 
 // Tab types
 type SettingsTab = 'general' | 'media' | 'playback' | 'security';
@@ -254,6 +255,13 @@ export const SettingsPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [showFineTune, setShowFineTune] = useState(false);
   const [showBaseKey, setShowBaseKey] = useState(false);
+  const [bookmarkFeedback, setBookmarkFeedback] = useState<string | null>(null);
+  const bookmarkFeedbackTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (bookmarkFeedbackTimer.current !== null) {
+      window.clearTimeout(bookmarkFeedbackTimer.current);
+    }
+  }, []);
 
   const {
     theme,
@@ -347,6 +355,27 @@ export const SettingsPanel: React.FC = () => {
     if (profileName !== 'custom') {
       setShowFineTune(false);
     }
+  };
+
+  const handleCreateBookmark = () => {
+    const params = encodeBookmark(useStore.getState());
+    const search = mergeBookmarkIntoLocation(window.location.search, params);
+    const url = `${window.location.pathname}${search}${window.location.hash}`;
+    window.history.replaceState(null, '', url);
+    const flash = (message: string) => {
+      setBookmarkFeedback(message);
+      if (bookmarkFeedbackTimer.current !== null) {
+        window.clearTimeout(bookmarkFeedbackTimer.current);
+      }
+      bookmarkFeedbackTimer.current = window.setTimeout(() => {
+        setBookmarkFeedback(null);
+        bookmarkFeedbackTimer.current = null;
+      }, 3000);
+    };
+    navigator.clipboard.writeText(window.location.href).then(
+      () => flash('Bookmark URL updated and copied to clipboard'),
+      () => flash('Bookmark URL updated in address bar (clipboard unavailable)')
+    );
   };
 
   // Profile accent colors (semantic: urgency spectrum from red to gray)
@@ -908,6 +937,23 @@ export const SettingsPanel: React.FC = () => {
             )}
           </div>
         )}
+      </div>
+
+      <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Bookmark URL</p>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">
+              {bookmarkFeedback ?? 'Encode all non-default settings into the URL for sharing or reload.'}
+            </p>
+          </div>
+          <button
+            onClick={handleCreateBookmark}
+            className="btn-primary text-sm whitespace-nowrap"
+          >
+            Create Bookmark
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ import { useStore } from '../../store';
 import { isDebugMode } from '../common/DevSettingsPanel';
 import { useVAD } from '../../hooks/useVAD';
 import { VADIndicator, VADDot } from '../common/VADIndicator';
+import { consumePendingPublishTracks } from '../../lib/url-actions';
 
 type MediaType = 'video' | 'audio';
 type Resolution = '1080p' | '720p' | '480p';
@@ -45,11 +46,18 @@ export const PublishPanel: React.FC = () => {
     stopPublishing: storeStopPublishing,
     keyframeInterval,
     videoResolution,
+    videoBitrate,
+    audioBitrate,
     setKeyframeInterval,
     useAnnounceFlow,
     announceStatus,
+    announceTrackAliases,
     cancelAnnounce,
     secureObjectsEnabled,
+    defaultPublishNamespace,
+    defaultPublishTrackName,
+    setDefaultPublishNamespace,
+    setDefaultPublishTrackName,
   } = useStore();
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -61,11 +69,10 @@ export const PublishPanel: React.FC = () => {
   // Track configurations
   const [trackConfigs, setTrackConfigs] = useState<TrackConfig[]>([]);
 
-  // New track form state
-  const [newTrack, setNewTrack] = useState<Partial<TrackConfig>>({
+  // New track form state (namespace + trackName are store-backed so they
+  // survive reloads and can be captured by the bookmark URL feature).
+  const [newTrack, setNewTrack] = useState<Partial<Omit<TrackConfig, 'namespace' | 'trackName'>>>({
     mediaType: 'video',
-    namespace: 'conference/room-1/media',
-    trackName: '',
     resolution: '720p',
     framerate: 30,
     bitrate: 2000000,
@@ -122,6 +129,25 @@ export const PublishPanel: React.FC = () => {
     refreshDevices();
   }, []);
 
+  useEffect(() => {
+    const pending = consumePendingPublishTracks();
+    if (pending.length === 0) return;
+    const now = Date.now();
+    setTrackConfigs(pending.map((p, idx) => ({
+      id: `track-url-${now}-${idx}`,
+      mediaType: p.mediaType,
+      namespace: p.namespace,
+      trackName: p.trackName,
+      resolution: p.mediaType === 'video' ? videoResolution : undefined,
+      framerate: p.mediaType === 'video' ? 30 : undefined,
+      bitrate: p.mediaType === 'video' ? videoBitrate : audioBitrate,
+      deliveryTimeout: 5000,
+      priority: 128,
+      deliveryMode: p.mediaType === 'video' ? 'stream' : 'datagram',
+      isPublishing: false,
+    })));
+  }, []);
+
   // Update video preview
   useEffect(() => {
     if (videoRef.current) {
@@ -129,16 +155,26 @@ export const PublishPanel: React.FC = () => {
     }
   }, [localStream]);
 
-  const createCaptureStream = async (videoDeviceId?: string, audioDeviceId?: string) => {
+  const createCaptureStream = async (
+    videoDeviceId?: string,
+    audioDeviceId?: string,
+    options?: { videoEnabled?: boolean; audioEnabled?: boolean }
+  ) => {
     const { width, height } = getResolutionConfig(videoResolution);
+    const videoEnabled = options?.videoEnabled ?? true;
+    const audioEnabled = options?.audioEnabled ?? true;
 
     return navigator.mediaDevices.getUserMedia({
-      video: videoDeviceId
-        ? { deviceId: { exact: videoDeviceId }, width, height }
-        : { width, height },
-      audio: audioDeviceId
-        ? { deviceId: { exact: audioDeviceId } }
-        : true,
+      video: videoEnabled
+        ? (videoDeviceId
+            ? { deviceId: { exact: videoDeviceId }, width, height }
+            : { width, height })
+        : false,
+      audio: audioEnabled
+        ? (audioDeviceId
+            ? { deviceId: { exact: audioDeviceId } }
+            : true)
+        : false,
     });
   };
 
@@ -176,7 +212,7 @@ export const PublishPanel: React.FC = () => {
   }, [selectedVideoDevice, selectedAudioDevice]);
 
   const addTrackConfig = () => {
-    if (!newTrack.namespace || !newTrack.trackName) return;
+    if (!defaultPublishNamespace || !defaultPublishTrackName) return;
 
     // Default delivery mode: stream for video, datagram for audio
     const defaultDeliveryMode: DeliveryMode = newTrack.mediaType === 'video' ? 'stream' : 'datagram';
@@ -184,8 +220,8 @@ export const PublishPanel: React.FC = () => {
     const config: TrackConfig = {
       id: `track-${Date.now()}`,
       mediaType: newTrack.mediaType || 'video',
-      namespace: newTrack.namespace,
-      trackName: newTrack.trackName,
+      namespace: defaultPublishNamespace,
+      trackName: defaultPublishTrackName,
       resolution: newTrack.mediaType === 'video' ? newTrack.resolution : undefined,
       framerate: newTrack.mediaType === 'video' ? newTrack.framerate : undefined,
       bitrate: newTrack.bitrate,
@@ -196,10 +232,7 @@ export const PublishPanel: React.FC = () => {
     };
 
     setTrackConfigs([...trackConfigs, config]);
-    setNewTrack({
-      ...newTrack,
-      trackName: '',
-    });
+    setDefaultPublishTrackName('');
   };
 
   const removeTrackConfig = (id: string) => {
@@ -210,10 +243,22 @@ export const PublishPanel: React.FC = () => {
     setPublishError(null);
 
     try {
-      let stream = localStream;
-      if (!stream) {
-        await startCapture();
-        stream = useStore.getState().localStream;
+      // Each track gets its own video/audio enabled based on its media type
+      const videoEnabled = config.mediaType === 'video';
+      const audioEnabled = config.mediaType === 'audio';
+
+      // Always create a fresh stream for each track
+      // This ensures each track has its own independent stream that won't be stopped
+      // when other operations happen (device changes, other tracks starting, etc.)
+      const stream = await createCaptureStream(
+        videoEnabled ? selectedVideoDevice : undefined,
+        audioEnabled ? selectedAudioDevice : undefined,
+        { videoEnabled, audioEnabled }
+      );
+
+      // Update localStream for preview (don't stop the old one if tracks are still publishing)
+      if (!localStream) {
+        setLocalStream(stream);
       }
 
       if (!stream) {
@@ -221,11 +266,7 @@ export const PublishPanel: React.FC = () => {
         return;
       }
 
-      // Each track gets its own video/audio enabled based on its media type
-      // These are passed directly to startPublishing, not set globally
-      const videoEnabled = config.mediaType === 'video';
-      const audioEnabled = config.mediaType === 'audio';
-
+      // Pass the stream directly to startPublishing
       const trackAlias = await storeStartPublishing(
         config.namespace,
         config.trackName,
@@ -233,7 +274,8 @@ export const PublishPanel: React.FC = () => {
         config.priority,
         config.deliveryMode,
         videoEnabled,
-        audioEnabled
+        audioEnabled,
+        stream
       );
 
       setTrackConfigs(trackConfigs.map(t =>
@@ -247,9 +289,17 @@ export const PublishPanel: React.FC = () => {
   };
 
   const stopPublishingTrack = async (config: TrackConfig) => {
+    // In announce flow, look up the actual trackAlias from the map using namespace/trackName
+    // because config.trackAlias is just a placeholder (0n) returned from startPublishing
+    const trackKey = `${config.namespace}/${config.trackName}`;
+    const announceAlias = announceTrackAliases.get(trackKey);
+    const effectiveTrackAlias = useAnnounceFlow && announceAlias !== undefined
+      ? announceAlias
+      : config.trackAlias;
+
     try {
-      if (config.trackAlias !== undefined) {
-        await storeStopPublishing(config.trackAlias);
+      if (effectiveTrackAlias !== undefined) {
+        await storeStopPublishing(effectiveTrackAlias);
       }
       setTrackConfigs(trackConfigs.map(t =>
         t.id === config.id ? { ...t, isPublishing: false, trackAlias: undefined } : t
@@ -468,8 +518,8 @@ export const PublishPanel: React.FC = () => {
             <label className="label">Namespace</label>
             <input
               type="text"
-              value={newTrack.namespace}
-              onChange={(e) => setNewTrack({ ...newTrack, namespace: e.target.value })}
+              value={defaultPublishNamespace}
+              onChange={(e) => setDefaultPublishNamespace(e.target.value)}
               placeholder="conference/room-1/media"
               className="input"
             />
@@ -478,8 +528,8 @@ export const PublishPanel: React.FC = () => {
             <label className="label">Track Name</label>
             <input
               type="text"
-              value={newTrack.trackName}
-              onChange={(e) => setNewTrack({ ...newTrack, trackName: e.target.value })}
+              value={defaultPublishTrackName}
+              onChange={(e) => setDefaultPublishTrackName(e.target.value)}
               placeholder={newTrack.mediaType === 'video' ? 'user-id/video' : 'user-id/audio'}
               className="input"
             />
@@ -525,7 +575,7 @@ export const PublishPanel: React.FC = () => {
           </div>
           <button
             onClick={addTrackConfig}
-            disabled={!newTrack.namespace || !newTrack.trackName}
+            disabled={!defaultPublishNamespace || !defaultPublishTrackName}
             className="btn-primary w-full"
           >
             Add Track

@@ -49,7 +49,10 @@ jobs:
           BASE_URL: /${{ github.event.repository.name }}/branches/${{ github.event.inputs.branch }}/
 
       - name: Save branch build
-        run: mkdir -p branch-build && mv packages/client/dist branch-build/${{ github.event.inputs.branch }}
+        run: |
+          target="branch-build/${{ github.event.inputs.branch }}"
+          mkdir -p "$(dirname "$target")"
+          mv packages/client/dist "$target"
 
       - name: Checkout main for full build
         uses: actions/checkout@v4
@@ -79,8 +82,9 @@ jobs:
       - name: Combine all builds
         run: |
           mv packages/client/dist dist-combined/14
-          mkdir -p dist-combined/branches
-          mv branch-build/${{ github.event.inputs.branch }} dist-combined/branches/
+          target="dist-combined/branches/${{ github.event.inputs.branch }}"
+          mkdir -p "$(dirname "$target")"
+          mv "branch-build/${{ github.event.inputs.branch }}" "$target"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
