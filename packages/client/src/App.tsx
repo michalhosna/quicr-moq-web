@@ -20,8 +20,10 @@ import { SettingsPanel } from './components/common/SettingsPanel';
 import { StatusPanel } from './components/common/StatusPanel';
 import { DevSettingsPanel } from './components/common/DevSettingsPanel';
 import { DecodeErrorToast } from './components/common/DecodeErrorToast';
+import { useBookmarkHydration } from './hooks/useBookmarkHydration';
 
 const App: React.FC = () => {
+  useBookmarkHydration();
   const [activeTab, setActiveTab] = React.useState<'publish' | 'subscribe' | 'chat'>('publish');
   const [showSettings, setShowSettings] = React.useState(false);
   const { state } = useStore();

@@ -23,9 +23,10 @@ export const SubscribeNamespacePanel: React.FC = () => {
     stopNamespaceSubscription,
     onVideoFrame,
     onAudioData,
+    defaultSubscribeNamespacePrefix,
+    setDefaultSubscribeNamespacePrefix,
   } = useStore();
 
-  const [newNamespacePrefix, setNewNamespacePrefix] = useState('conference/room-1');
   const [error, setError] = useState<string | null>(null);
   const [videoFrames, setVideoFrames] = useState<Record<number, VideoFrame | null>>({});
 
@@ -63,9 +64,9 @@ export const SubscribeNamespacePanel: React.FC = () => {
   }, [onVideoFrame, handleVideoFrame]);
 
   const handleAddPanel = () => {
-    if (!newNamespacePrefix.trim()) return;
-    addNamespacePanel(newNamespacePrefix.trim());
-    setNewNamespacePrefix('');
+    if (!defaultSubscribeNamespacePrefix.trim()) return;
+    addNamespacePanel(defaultSubscribeNamespacePrefix.trim());
+    setDefaultSubscribeNamespacePrefix('');
   };
 
   const handleStartSubscription = async (panelId: string) => {
@@ -95,8 +96,8 @@ export const SubscribeNamespacePanel: React.FC = () => {
             <label className="label">Namespace Prefix</label>
             <input
               type="text"
-              value={newNamespacePrefix}
-              onChange={(e) => setNewNamespacePrefix(e.target.value)}
+              value={defaultSubscribeNamespacePrefix}
+              onChange={(e) => setDefaultSubscribeNamespacePrefix(e.target.value)}
               placeholder="conference/room-1"
               className="input"
             />
@@ -106,7 +107,7 @@ export const SubscribeNamespacePanel: React.FC = () => {
           </div>
           <button
             onClick={handleAddPanel}
-            disabled={!newNamespacePrefix.trim()}
+            disabled={!defaultSubscribeNamespacePrefix.trim()}
             className="btn-primary w-full"
           >
             Add Namespace Subscription

@@ -51,6 +51,10 @@ export const PublishPanel: React.FC = () => {
     announceTrackAliases,
     cancelAnnounce,
     secureObjectsEnabled,
+    defaultPublishNamespace,
+    defaultPublishTrackName,
+    setDefaultPublishNamespace,
+    setDefaultPublishTrackName,
   } = useStore();
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -62,11 +66,10 @@ export const PublishPanel: React.FC = () => {
   // Track configurations
   const [trackConfigs, setTrackConfigs] = useState<TrackConfig[]>([]);
 
-  // New track form state
-  const [newTrack, setNewTrack] = useState<Partial<TrackConfig>>({
+  // New track form state (namespace + trackName are store-backed so they
+  // survive reloads and can be captured by the bookmark URL feature).
+  const [newTrack, setNewTrack] = useState<Partial<Omit<TrackConfig, 'namespace' | 'trackName'>>>({
     mediaType: 'video',
-    namespace: 'conference/room-1/media',
-    trackName: '',
     resolution: '720p',
     framerate: 30,
     bitrate: 2000000,
@@ -187,7 +190,7 @@ export const PublishPanel: React.FC = () => {
   }, [selectedVideoDevice, selectedAudioDevice]);
 
   const addTrackConfig = () => {
-    if (!newTrack.namespace || !newTrack.trackName) return;
+    if (!defaultPublishNamespace || !defaultPublishTrackName) return;
 
     // Default delivery mode: stream for video, datagram for audio
     const defaultDeliveryMode: DeliveryMode = newTrack.mediaType === 'video' ? 'stream' : 'datagram';
@@ -195,8 +198,8 @@ export const PublishPanel: React.FC = () => {
     const config: TrackConfig = {
       id: `track-${Date.now()}`,
       mediaType: newTrack.mediaType || 'video',
-      namespace: newTrack.namespace,
-      trackName: newTrack.trackName,
+      namespace: defaultPublishNamespace,
+      trackName: defaultPublishTrackName,
       resolution: newTrack.mediaType === 'video' ? newTrack.resolution : undefined,
       framerate: newTrack.mediaType === 'video' ? newTrack.framerate : undefined,
       bitrate: newTrack.bitrate,
@@ -207,10 +210,7 @@ export const PublishPanel: React.FC = () => {
     };
 
     setTrackConfigs([...trackConfigs, config]);
-    setNewTrack({
-      ...newTrack,
-      trackName: '',
-    });
+    setDefaultPublishTrackName('');
   };
 
   const removeTrackConfig = (id: string) => {
@@ -498,8 +498,8 @@ export const PublishPanel: React.FC = () => {
             <label className="label">Namespace</label>
             <input
               type="text"
-              value={newTrack.namespace}
-              onChange={(e) => setNewTrack({ ...newTrack, namespace: e.target.value })}
+              value={defaultPublishNamespace}
+              onChange={(e) => setDefaultPublishNamespace(e.target.value)}
               placeholder="conference/room-1/media"
               className="input"
             />
@@ -508,8 +508,8 @@ export const PublishPanel: React.FC = () => {
             <label className="label">Track Name</label>
             <input
               type="text"
-              value={newTrack.trackName}
-              onChange={(e) => setNewTrack({ ...newTrack, trackName: e.target.value })}
+              value={defaultPublishTrackName}
+              onChange={(e) => setDefaultPublishTrackName(e.target.value)}
               placeholder={newTrack.mediaType === 'video' ? 'user-id/video' : 'user-id/audio'}
               className="input"
             />
@@ -555,7 +555,7 @@ export const PublishPanel: React.FC = () => {
           </div>
           <button
             onClick={addTrackConfig}
-            disabled={!newTrack.namespace || !newTrack.trackName}
+            disabled={!defaultPublishNamespace || !defaultPublishTrackName}
             className="btn-primary w-full"
           >
             Add Track

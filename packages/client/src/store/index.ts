@@ -23,6 +23,7 @@ import {
 } from '@web-moq/media';
 import { TransportState, LogLevel } from '../types';
 import { isDebugMode } from '../components/common/DevSettingsPanel';
+import { DEFAULT_SETTINGS, type BookmarkableSettings } from '../lib/bookmark-defaults';
 
 /**
  * Create workers for offloading transport/encoding/decoding to web workers.
@@ -375,6 +376,16 @@ interface SettingsSlice {
   quicrInteropEnabled: boolean;
   /** Participant ID for QuicR interop (32-bit) */
   quicrParticipantId: number;
+  /** Default namespace pre-filled in the Publish panel input */
+  defaultPublishNamespace: string;
+  /** Default track name pre-filled in the Publish panel input */
+  defaultPublishTrackName: string;
+  /** Default namespace pre-filled in the Subscribe panel input */
+  defaultSubscribeNamespace: string;
+  /** Default track name pre-filled in the Subscribe panel input */
+  defaultSubscribeTrackName: string;
+  /** Default namespace prefix pre-filled in the Subscribe-by-namespace panel */
+  defaultSubscribeNamespacePrefix: string;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setLogLevel: (level: LogLevel) => void;
@@ -408,10 +419,21 @@ interface SettingsSlice {
   setSecureObjectsBaseKey: (value: string) => void;
   setQuicrInteropEnabled: (value: boolean) => void;
   setQuicrParticipantId: (value: number) => void;
+  setDefaultPublishNamespace: (value: string) => void;
+  setDefaultPublishTrackName: (value: string) => void;
+  setDefaultSubscribeNamespace: (value: string) => void;
+  setDefaultSubscribeTrackName: (value: string) => void;
+  setDefaultSubscribeNamespacePrefix: (value: string) => void;
   /** Apply an experience profile (sets all related settings) */
   applyExperienceProfile: (profile: ExperienceProfileName) => void;
   /** Update detected profile based on current settings */
   updateDetectedProfile: () => void;
+  /**
+   * Apply a bookmark-derived partial state in a single `set` call,
+   * bypassing per-field setters (which would trigger `applyExperienceProfile`
+   * cascades and overwrite sibling fields in the same bookmark).
+   */
+  applyBookmarkState: (partial: Partial<BookmarkableSettings>) => void;
 }
 
 // ============================================================================
@@ -424,13 +446,17 @@ export const useStore = create<AppStore>()(
   persist(
     (set, get) => ({
       // ========================================
+      // Bookmarkable defaults (see DEFAULT_SETTINGS above)
+      // ========================================
+      ...DEFAULT_SETTINGS,
+
+      // ========================================
       // Connection State
       // ========================================
       transport: null,
       session: null,
       state: 'disconnected',
       sessionState: 'none',
-      serverUrl: 'https://localhost:4443/moq',
       error: null,
       decodeErrors: [],
       // Announce flow state
@@ -1224,7 +1250,6 @@ export const useStore = create<AppStore>()(
       messages: [],
       participants: [],
       participantId: crypto.randomUUID(),
-      displayName: 'Anonymous',
 
       addMessage: (message) =>
         set((state) => ({
@@ -1257,41 +1282,8 @@ export const useStore = create<AppStore>()(
         })),
 
       // ========================================
-      // Settings State
+      // Settings State (defaults come from DEFAULT_SETTINGS spread above)
       // ========================================
-      theme: 'system',
-      logLevel: LogLevel.ERROR, // Default to ERROR - use ?debug=1 to access dev settings
-      videoBitrate: 2_000_000,
-      audioBitrate: 128_000,
-      videoResolution: '720p',
-      keyframeInterval: 1,
-      deliveryMode: 'stream',
-      localDevelopment: true,
-      useWorkers: true, // Default to using workers for better performance
-      useAnnounceFlow: false, // Default to direct PUBLISH flow
-      connectionTimeout: 300000, // Default 5 minutes (was 10 seconds)
-      enableStats: false, // Default to off for performance
-      jitterBufferDelay: 100, // Default 100ms jitter buffer
-      varIntType: VarIntType.QUIC, // Default to QUIC varints for compatibility
-      vadEnabled: false, // Default VAD off
-      vadProvider: 'libfvad', // Default to lightweight libfvad
-      vadVisualizationEnabled: false, // Default viz off for performance
-      audioDeliveryMode: 'datagram', // Default to datagram for low latency
-      experienceProfile: 'interactive', // Default to interactive profile
-      useGroupArbiter: false, // Default to legacy JitterBuffer
-      maxLatency: 500, // Default 500ms max latency
-      estimatedGopDuration: 1000, // Default 1s GOP
-      skipToLatestGroup: false, // Default: complete current GOP before switching
-      skipGraceFrames: 3, // Default: wait 3 frame intervals before skipping
-      enableCatchUp: true, // Default: enable catch-up when buffer gets deep
-      catchUpThreshold: 5, // Default: trigger catch-up after 5 ready frames
-      useLatencyDeadline: true, // Default: use latency-only deadline (interactive mode)
-      arbiterDebug: false, // Default: no debug logging
-      secureObjectsEnabled: false, // Default: encryption off
-      secureObjectsCipherSuite: '0x0004', // Default: AES_128_GCM_SHA256_128
-      secureObjectsBaseKey: '', // Default: empty (user must provide)
-      quicrInteropEnabled: false, // Default: standard LOC packaging
-      quicrParticipantId: 0, // Default: 0 (should be set by user)
 
       setTheme: (theme) => {
         set({ theme });
@@ -1343,6 +1335,11 @@ export const useStore = create<AppStore>()(
       setSecureObjectsBaseKey: (value) => set({ secureObjectsBaseKey: value }),
       setQuicrInteropEnabled: (value) => set({ quicrInteropEnabled: value }),
       setQuicrParticipantId: (value) => set({ quicrParticipantId: value }),
+      setDefaultPublishNamespace: (value) => set({ defaultPublishNamespace: value }),
+      setDefaultPublishTrackName: (value) => set({ defaultPublishTrackName: value }),
+      setDefaultSubscribeNamespace: (value) => set({ defaultSubscribeNamespace: value }),
+      setDefaultSubscribeTrackName: (value) => set({ defaultSubscribeTrackName: value }),
+      setDefaultSubscribeNamespacePrefix: (value) => set({ defaultSubscribeNamespacePrefix: value }),
 
       applyExperienceProfile: (profileName) => {
         if (profileName === 'custom') {
@@ -1383,6 +1380,34 @@ export const useStore = create<AppStore>()(
           set({ experienceProfile: detected });
         }
       },
+
+      applyBookmarkState: (partial) => {
+        // Single merge; bypasses per-field setters so applyExperienceProfile's
+        // cascade can't overwrite sibling fields that came from the same URL.
+        set(partial);
+        // Re-run side effects for the handful of fields whose normal setters
+        // do more than set state.
+        if (
+          partial.theme !== undefined ||
+          partial.logLevel !== undefined ||
+          partial.varIntType !== undefined
+        ) {
+          const next = get();
+          if (partial.theme !== undefined && typeof window !== 'undefined') {
+            const dark =
+              next.theme === 'dark' ||
+              (next.theme === 'system' &&
+                window.matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.classList.toggle('dark', dark);
+          }
+          if (partial.logLevel !== undefined) {
+            Logger.setLevel(next.logLevel as unknown as CoreLogLevel);
+          }
+          if (partial.varIntType !== undefined) {
+            setVarIntType(next.varIntType);
+          }
+        }
+      },
     }),
     {
       name: 'moqt-client-storage',
@@ -1399,6 +1424,7 @@ export const useStore = create<AppStore>()(
         localDevelopment: state.localDevelopment,
         useWorkers: state.useWorkers,
         useAnnounceFlow: state.useAnnounceFlow,
+        connectionTimeout: state.connectionTimeout,
         enableStats: state.enableStats,
         jitterBufferDelay: state.jitterBufferDelay,
         varIntType: state.varIntType,
@@ -1421,6 +1447,11 @@ export const useStore = create<AppStore>()(
         secureObjectsBaseKey: state.secureObjectsBaseKey,
         quicrInteropEnabled: state.quicrInteropEnabled,
         quicrParticipantId: state.quicrParticipantId,
+        defaultPublishNamespace: state.defaultPublishNamespace,
+        defaultPublishTrackName: state.defaultPublishTrackName,
+        defaultSubscribeNamespace: state.defaultSubscribeNamespace,
+        defaultSubscribeTrackName: state.defaultSubscribeTrackName,
+        defaultSubscribeNamespacePrefix: state.defaultSubscribeNamespacePrefix,
       }),
     }
   )

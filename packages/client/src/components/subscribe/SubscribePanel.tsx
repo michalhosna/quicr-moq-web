@@ -52,6 +52,10 @@ export const SubscribePanel: React.FC = () => {
     enableStats,
     experienceProfile,
     secureObjectsEnabled,
+    defaultSubscribeNamespace,
+    defaultSubscribeTrackName,
+    setDefaultSubscribeNamespace,
+    setDefaultSubscribeTrackName,
   } = useStore();
 
   // Get target latency from experience profile for graph color thresholds
@@ -65,11 +69,10 @@ export const SubscribePanel: React.FC = () => {
   // Subscription configurations
   const [subscriptionConfigs, setSubscriptionConfigs] = useState<SubscriptionConfig[]>([]);
 
-  // New subscription form state
-  const [newSubscription, setNewSubscription] = useState<Partial<SubscriptionConfig>>({
+  // New subscription form state (namespace + trackName are store-backed so
+  // they survive reloads and can be captured by the bookmark URL feature).
+  const [newSubscription, setNewSubscription] = useState<Partial<Omit<SubscriptionConfig, 'namespace' | 'trackName'>>>({
     mediaType: 'video',
-    namespace: 'conference/room-1/media',
-    trackName: '',
   });
 
   const [subscribeError, setSubscribeError] = useState<string | null>(null);
@@ -179,22 +182,19 @@ export const SubscribePanel: React.FC = () => {
   }, []);
 
   const addSubscriptionConfig = () => {
-    if (!newSubscription.namespace || !newSubscription.trackName) return;
+    if (!defaultSubscribeNamespace || !defaultSubscribeTrackName) return;
 
     const config: SubscriptionConfig = {
       id: `sub-config-${Date.now()}`,
       mediaType: newSubscription.mediaType || 'video',
-      namespace: newSubscription.namespace,
-      trackName: newSubscription.trackName,
+      namespace: defaultSubscribeNamespace,
+      trackName: defaultSubscribeTrackName,
       isSubscribed: false,
       isPaused: false,
     };
 
     setSubscriptionConfigs([...subscriptionConfigs, config]);
-    setNewSubscription({
-      ...newSubscription,
-      trackName: '',
-    });
+    setDefaultSubscribeTrackName('');
   };
 
   const removeSubscriptionConfig = (id: string) => {
@@ -306,11 +306,8 @@ export const SubscribePanel: React.FC = () => {
   };
 
   const handleSubscribeToAvailable = (track: { namespace: string[]; trackName: string }) => {
-    setNewSubscription({
-      ...newSubscription,
-      namespace: track.namespace.join('/'),
-      trackName: track.trackName,
-    });
+    setDefaultSubscribeNamespace(track.namespace.join('/'));
+    setDefaultSubscribeTrackName(track.trackName);
   };
 
   // Get video subscriptions with their frames
@@ -376,8 +373,8 @@ export const SubscribePanel: React.FC = () => {
             <label className="label">Namespace</label>
             <input
               type="text"
-              value={newSubscription.namespace}
-              onChange={(e) => setNewSubscription({ ...newSubscription, namespace: e.target.value })}
+              value={defaultSubscribeNamespace}
+              onChange={(e) => setDefaultSubscribeNamespace(e.target.value)}
               placeholder="conference/room-1/media"
               className="input"
             />
@@ -386,15 +383,15 @@ export const SubscribePanel: React.FC = () => {
             <label className="label">Track Name</label>
             <input
               type="text"
-              value={newSubscription.trackName}
-              onChange={(e) => setNewSubscription({ ...newSubscription, trackName: e.target.value })}
+              value={defaultSubscribeTrackName}
+              onChange={(e) => setDefaultSubscribeTrackName(e.target.value)}
               placeholder={newSubscription.mediaType === 'video' ? 'user-id/video' : 'user-id/audio'}
               className="input"
             />
           </div>
           <button
             onClick={addSubscriptionConfig}
-            disabled={!newSubscription.namespace || !newSubscription.trackName}
+            disabled={!defaultSubscribeNamespace || !defaultSubscribeTrackName}
             className="btn-primary w-full"
           >
             Add Subscription
