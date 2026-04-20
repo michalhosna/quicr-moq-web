@@ -10,6 +10,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../../store';
+import { consumePendingSubscribeTracks, consumeAutoSubscribe } from '../../lib/url-actions';
 import { VideoRenderer } from './VideoRenderer';
 import { AudioPlayer } from './AudioPlayer';
 import { JitterGraph } from './JitterGraph';
@@ -180,6 +181,50 @@ export const SubscribePanel: React.FC = () => {
       });
     };
   }, []);
+
+  // Tracks whether ?autoSubscribe=1 requested auto-subscription of URL-seeded rows.
+  // Consumed on mount; the sessionState effect below watches for 'ready' and fires once.
+  const autoSubscribeRef = useRef(false);
+
+  useEffect(() => {
+    const pending = consumePendingSubscribeTracks();
+    if (pending.length > 0) {
+      const now = Date.now();
+      setSubscriptionConfigs(pending.map((p, idx) => ({
+        id: `sub-url-${now}-${idx}`,
+        mediaType: p.mediaType,
+        namespace: p.namespace,
+        trackName: p.trackName,
+        isSubscribed: false,
+        isPaused: false,
+      })));
+    }
+    if (consumeAutoSubscribe()) {
+      autoSubscribeRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!autoSubscribeRef.current) return;
+    if (sessionState !== 'ready') return;
+    const targets = subscriptionConfigs.filter(c => !c.isSubscribed);
+    if (targets.length === 0) return;
+    autoSubscribeRef.current = false;
+    void (async () => {
+      for (const config of targets) {
+        try {
+          const subscriptionId = await startSubscription(config.namespace, config.trackName, config.mediaType);
+          activeSubscriptionIdsRef.current = [...activeSubscriptionIdsRef.current, subscriptionId];
+          setSubscriptionConfigs(prev => prev.map(c =>
+            c.id === config.id ? { ...c, isSubscribed: true, subscriptionId, isPaused: false } : c
+          ));
+        } catch (err) {
+          console.error('[auto-subscribe] failed', config, err);
+          setSubscribeError((err as Error).message);
+        }
+      }
+    })();
+  }, [sessionState, subscriptionConfigs, startSubscription]);
 
   const addSubscriptionConfig = () => {
     if (!defaultSubscribeNamespace || !defaultSubscribeTrackName) return;

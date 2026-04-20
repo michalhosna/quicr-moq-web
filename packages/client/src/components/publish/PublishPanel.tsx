@@ -14,6 +14,7 @@ import { useStore } from '../../store';
 import { isDebugMode } from '../common/DevSettingsPanel';
 import { useVAD } from '../../hooks/useVAD';
 import { VADIndicator, VADDot } from '../common/VADIndicator';
+import { consumePendingPublishTracks } from '../../lib/url-actions';
 
 type MediaType = 'video' | 'audio';
 type Resolution = '1080p' | '720p' | '480p';
@@ -45,6 +46,8 @@ export const PublishPanel: React.FC = () => {
     stopPublishing: storeStopPublishing,
     keyframeInterval,
     videoResolution,
+    videoBitrate,
+    audioBitrate,
     setKeyframeInterval,
     useAnnounceFlow,
     announceStatus,
@@ -124,6 +127,25 @@ export const PublishPanel: React.FC = () => {
 
   useEffect(() => {
     refreshDevices();
+  }, []);
+
+  useEffect(() => {
+    const pending = consumePendingPublishTracks();
+    if (pending.length === 0) return;
+    const now = Date.now();
+    setTrackConfigs(pending.map((p, idx) => ({
+      id: `track-url-${now}-${idx}`,
+      mediaType: p.mediaType,
+      namespace: p.namespace,
+      trackName: p.trackName,
+      resolution: p.mediaType === 'video' ? videoResolution : undefined,
+      framerate: p.mediaType === 'video' ? 30 : undefined,
+      bitrate: p.mediaType === 'video' ? videoBitrate : audioBitrate,
+      deliveryTimeout: 5000,
+      priority: 128,
+      deliveryMode: p.mediaType === 'video' ? 'stream' : 'datagram',
+      isPublishing: false,
+    })));
   }, []);
 
   // Update video preview
